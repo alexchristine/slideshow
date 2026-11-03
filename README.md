@@ -76,7 +76,8 @@ comfortable sharing.
 | Setting | What it does |
 |---|---|
 | Seconds per photo | How long each photo stays up. A pan runs for this whole time, then the next photo comes in. |
-| Display mode → **Pan** | A photo that's taller than the window (relative to the window's shape) is scaled to the window's width and pans top → bottom → top. A wider one is scaled to the height and pans left → right → left. Photos that already match the window's shape are shown fitted. |
+| Display mode → **Pan** | Portrait photos are scaled to the window's width and pan top → bottom → top. Landscape photos are scaled to the window's height and pan left → right → left. A photo with nothing left to pan, such as a 3:2 photo on a 16:9 screen, is shown fitted. |
+| Pan direction | **By photo orientation** (default) works as described above. **By window shape** pans whichever side overflows the window instead, so the screen is always filled. |
 | Pan speed / pause at each edge | How fast the photo moves, as a share of the screen per second, and how many seconds it rests at each edge. It keeps sweeping back and forth until the photo's time is up. |
 | Only pan when overflow ≥ | Photos that would barely move are shown fitted instead. |
 | Display mode → **Fit** | The whole photo, never cropped, scaled to the window. The letterbox space is black or a blurred copy of the photo. |

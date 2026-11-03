@@ -168,6 +168,7 @@ const DEFAULTS = {
   clientId: '', apiKey: '', folder: '', recursive: true,
   seconds: 12, transition: 'fade', transitionSec: 1.2,
   display: 'pan',           // fit | pan
+  panAxis: 'orientation',   // orientation | window
   panSpeed: 8, panPause: 1.5, panMinOverflow: 6,
   background: 'blur',       // blur | black
   order: 'curated',         // shuffle | curated | newest | oldest | name
@@ -566,8 +567,10 @@ function layout(slide) {
   let mode = S.display, axis = null, dw, dh, travel = 0;
 
   if (mode === 'pan') {
-    // Relatively taller than the window → fill the width and pan vertically; otherwise fill height, pan horizontally.
-    if (w / h < W / H) { dw = W; dh = Math.ceil(h * W / w); travel = dh - H; axis = 'y'; }
+    // 'orientation': portrait photos fill the width and pan vertically, landscape ones fill the height and pan
+    // horizontally. 'window': whichever side overflows the window's shape gets panned.
+    const vertical = S.panAxis === 'window' ? w / h < W / H : h > w;
+    if (vertical) { dw = W; dh = Math.ceil(h * W / w); travel = dh - H; axis = 'y'; }
     else { dh = H; dw = Math.ceil(w * H / h); travel = dw - W; axis = 'x'; }
     if (travel / (axis === 'y' ? H : W) * 100 < S.panMinOverflow) mode = 'fit';
   }
@@ -871,6 +874,9 @@ const SCHEMA = [
   { section: 'Presentation' },
   { key: 'display', label: 'Display mode', type: 'select', options: [['pan', 'Pan — fill the screen, sweep across the photo'], ['fit', 'Fit — whole photo, never cropped']],
     help: 'Pan: photos taller than the window fill its width and scroll top → bottom → top; wider ones fill its height and scroll left → right → left.' },
+  { key: 'panAxis', label: 'Pan direction', type: 'select', show: isPan,
+    options: [['orientation', 'By photo orientation — portrait pans up/down, landscape pans left/right'], ['window', 'By window shape — pan whichever side overflows']],
+    help: 'A landscape photo that is narrower than the window once it fills the height is shown fitted, with nothing to pan.' },
   { key: 'panSpeed', label: 'Pan speed', type: 'range', min: 1, max: 50, step: 1, unit: v => v + '%/s', show: isPan,
     help: 'Share of the screen the photo moves per second. It keeps sweeping back and forth until the photo’s time is up.' },
   { key: 'panPause', label: 'Pause at each edge', type: 'range', min: 0, max: 10, step: 0.5, unit: v => v.toFixed(1) + ' s', show: isPan },
@@ -992,7 +998,7 @@ function onSettingChanged(key) {
     Order.refresh();
     if (P.upcoming && key === 'order') { const u = P.upcoming; P.upcoming = null; u.promise.then(removeSlide, () => {}); queueUpcoming(); }
   }
-  if (['display', 'panMinOverflow', 'background'].includes(key)) relayoutAll(true);
+  if (['display', 'panAxis', 'panMinOverflow', 'background'].includes(key)) relayoutAll(true);
   if (key === 'panSpeed' || key === 'panPause') relayoutAll(false);
   if (key === 'seconds' && P.playing && P.started) startTimer(Math.max(1, S.seconds) * 1000);
   if (key === 'cacheSize') Cache.evict();
