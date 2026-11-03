@@ -1,0 +1,1052 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Drive Slideshow</title>
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root {
+    --bg: #000;
+    --panel: rgba(22, 22, 26, 0.92);
+    --panel-solid: #16161a;
+    --line: rgba(255, 255, 255, 0.10);
+    --text: #f1f1f3;
+    --muted: #9a9aa5;
+    --accent: #7aa7ff;
+    --accent-ink: #0b1630;
+    --danger: #ff8a7a;
+    --radius: 12px;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  body.idle { cursor: none; }
+  button, input, select { font: inherit; color: inherit; }
+
+  /* ---------- stage & slides ---------- */
+  #stage { position: fixed; inset: 0; overflow: hidden; background: var(--bg); touch-action: pan-y; }
+  .slide { position: absolute; inset: 0; overflow: hidden; background: var(--bg); will-change: opacity, transform; }
+  .slide .bg { position: absolute; inset: -6%; width: 112%; height: 112%; object-fit: cover;
+    filter: blur(48px) brightness(0.45) saturate(1.2); }
+  .slide .photo { position: absolute; max-width: none; max-height: none; will-change: transform;
+    image-orientation: from-image; user-select: none; -webkit-user-drag: none; }
+
+  #caption { position: fixed; left: 24px; bottom: 22px; z-index: 5; max-width: 70vw;
+    font-size: 15px; color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,.8); opacity: .85;
+    transition: opacity .6s; pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #caption:empty { opacity: 0; }
+
+  /* ---------- HUD ---------- */
+  #hud { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 10;
+    display: flex; align-items: center; gap: 4px; padding: 6px; border-radius: 999px;
+    background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(12px);
+    transition: opacity .35s, transform .35s; }
+  body.idle #hud, body.idle #topinfo { opacity: 0; pointer-events: none; }
+  #hud button { width: 40px; height: 40px; border: 0; border-radius: 50%; background: transparent; cursor: pointer;
+    display: grid; place-items: center; }
+  #hud button:hover { background: rgba(255,255,255,.1); }
+  #hud svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  #hud .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
+  #topinfo { position: fixed; top: 16px; right: 18px; z-index: 10; font-size: 12px; color: var(--muted);
+    background: var(--panel); border: 1px solid var(--line); padding: 4px 10px; border-radius: 999px; transition: opacity .35s; }
+  #topinfo:empty { display: none; }
+
+  /* ---------- toast ---------- */
+  #toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 30; display: none;
+    align-items: center; gap: 10px; padding: 8px 10px 8px 14px; border-radius: 999px; max-width: calc(100vw - 32px);
+    background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(12px); }
+  #toast.show { display: flex; }
+  #toast.error { border-color: rgba(255,138,122,.5); }
+  #toast button { border: 0; border-radius: 999px; padding: 4px 12px; background: var(--accent); color: var(--accent-ink); cursor: pointer; font-weight: 600; }
+
+  /* ---------- start overlay ---------- */
+  #start { position: fixed; inset: 0; z-index: 20; display: none; place-items: center; padding: 16px;
+    background: radial-gradient(ellipse at top, #1b2233 0%, #000 70%); }
+  #start.show { display: grid; }
+  #start .card { max-width: 440px; text-align: center; }
+  #start h1 { font-size: 28px; font-weight: 650; margin: 0 0 8px; letter-spacing: -.01em; }
+  #start p { color: var(--muted); margin: 0 0 24px; }
+  .btn { border: 1px solid var(--line); background: rgba(255,255,255,.06); border-radius: 10px; padding: 9px 16px; cursor: pointer; }
+  .btn:hover { background: rgba(255,255,255,.12); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .row-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  #start .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+  /* ---------- settings panel ---------- */
+  #panel { position: fixed; top: 0; right: 0; bottom: 0; z-index: 40; width: min(420px, 100vw);
+    background: var(--panel-solid); border-left: 1px solid var(--line); display: flex; flex-direction: column;
+    transform: translateX(100%); transition: transform .3s ease; }
+  #panel.open { transform: none; }
+  #panel header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+  #panel header h2 { margin: 0; font-size: 16px; }
+  #panel .x { border: 0; background: none; font-size: 22px; line-height: 1; cursor: pointer; color: var(--muted); }
+  #form { flex: 1; overflow-y: auto; padding: 4px 20px 20px; }
+  #form h3 { margin: 22px 0 10px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; margin-bottom: 5px; }
+  .field .help { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .field input[type=text], .field input[type=number], .field select {
+    width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: #0d0d10; }
+  .field input:focus, .field select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .field.check label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+  .field .range { display: flex; gap: 10px; align-items: center; }
+  .field .range input { flex: 1; accent-color: var(--accent); }
+  .field .range output { min-width: 56px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  #panel footer { padding: 14px 20px; border-top: 1px solid var(--line); display: flex; gap: 10px; justify-content: flex-end; }
+  .note { background: rgba(122,167,255,.08); border: 1px solid rgba(122,167,255,.25); padding: 10px 12px; border-radius: 10px; margin-top: 16px; font-size: 13px; }
+  .note a { color: var(--accent); }
+  kbd { font: 11px ui-monospace, monospace; padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; }
+
+  @media (max-width: 520px) {
+    #caption { left: 16px; bottom: 80px; }
+    #hud button { width: 36px; height: 36px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="stage"></div>
+<div id="caption"></div>
+<div id="topinfo"></div>
+
+<div id="hud">
+  <button id="bPrev" title="Previous (←)"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+  <button id="bPlay" title="Play / pause (Space)"><svg viewBox="0 0 24 24"><path id="playIcon" d="M8 5v14M16 5v14"/></svg></button>
+  <button id="bNext" title="Next (→)"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>
+  <span class="sep"></span>
+  <button id="bFull" title="Fullscreen (F)"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+  <button id="bSettings" title="Settings (S)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+</div>
+
+<div id="toast"><span id="toastMsg"></span><button id="toastBtn" hidden></button></div>
+
+<div id="start">
+  <div class="card">
+    <h1>Drive Slideshow</h1>
+    <p id="startMsg">Your photos, full screen.</p>
+    <div class="row">
+      <button class="btn primary" id="startBtn">Start slideshow</button>
+      <button class="btn" id="startSettings">Settings</button>
+    </div>
+  </div>
+</div>
+
+<aside id="panel" aria-label="Settings">
+  <header><h2>Settings</h2><button class="x" id="panelClose" title="Close (Esc)">×</button></header>
+  <div id="form"></div>
+  <footer>
+    <button class="btn" id="panelCancel">Close</button>
+    <button class="btn primary" id="panelApply">Apply &amp; restart</button>
+  </footer>
+</aside>
+
+<input type="file" id="localPicker" webkitdirectory multiple accept="image/*" hidden>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+'use strict';
+
+/* =====================================================================
+   Settings
+   ===================================================================== */
+const STORE_KEY = 'driveSlideshow.settings.v1';
+const TOKEN_KEY = 'driveSlideshow.token.v1';
+const SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
+const DAY = 86400000;
+
+const DEFAULTS = {
+  source: 'oauth',          // oauth | apikey | local
+  clientId: '', apiKey: '', folder: '', recursive: true,
+  seconds: 12, transition: 'fade', transitionSec: 1.2,
+  display: 'pan',           // fit | pan
+  panPasses: 1, panHold: 20, panMinOverflow: 6,
+  background: 'blur',       // blur | black
+  order: 'curated',         // shuffle | curated | newest | oldest | name
+  dateSource: 'taken',      // taken | created | modified
+  halfLifeDays: 365, minWeight: 0.15, noRepeat: 40,
+  caption: 'date',          // none | date | name | both
+  refreshMin: 30, cacheSize: 25, wakeLock: true, showInfo: true,
+};
+
+const S = (() => {
+  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(STORE_KEY) || '{}') }; }
+  catch { return { ...DEFAULTS }; }
+})();
+function saveSettings() { try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch {} }
+
+/* Setup links carry settings to another device in the URL fragment (#setup=…),
+   which browsers never send to the web server. */
+function encodeSetup() {
+  const data = {};
+  for (const k of Object.keys(DEFAULTS)) if (S[k] !== DEFAULTS[k]) data[k] = S[k];
+  const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(data))));
+  return location.origin + location.pathname + '#setup=' + b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+const importedSetup = (() => {
+  const m = location.hash.match(/[#&]setup=([\w-]+)/);
+  if (!m) return false;
+  history.replaceState(null, '', location.pathname + location.search);
+  try {
+    const b64 = m[1].replace(/-/g, '+').replace(/_/g, '/');
+    const data = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(b64), c => c.charCodeAt(0))));
+    for (const k of Object.keys(DEFAULTS)) if (k in data && typeof data[k] === typeof DEFAULTS[k]) S[k] = data[k];
+    saveSettings();
+    return true;
+  } catch { return 'error'; }
+})();
+
+const $ = s => document.querySelector(s);
+const stage = $('#stage');
+
+/* =====================================================================
+   Toast / status
+   ===================================================================== */
+let toastTimer = null;
+function toast(msg, { error = false, sticky = false, action = null, actionLabel = '' } = {}) {
+  const t = $('#toast'), b = $('#toastBtn');
+  clearTimeout(toastTimer);
+  if (!msg) { t.classList.remove('show'); return; }
+  $('#toastMsg').textContent = msg;
+  t.classList.toggle('error', error);
+  b.hidden = !action;
+  b.textContent = actionLabel;
+  b.onclick = action ? () => { toast(''); action(); } : null;
+  t.classList.add('show');
+  if (!sticky && !action) toastTimer = setTimeout(() => t.classList.remove('show'), error ? 7000 : 3000);
+}
+
+/* =====================================================================
+   Google auth (Google Identity Services token flow)
+   ===================================================================== */
+class AuthError extends Error { constructor(m = 'Not signed in to Google') { super(m); } }
+
+const Auth = {
+  token: null, expiresAt: 0, refreshTimer: null,
+  init() {
+    try {
+      const t = JSON.parse(sessionStorage.getItem(TOKEN_KEY) || 'null');
+      if (t && t.expiresAt > Date.now() + 120000) Object.assign(this, { token: t.token, expiresAt: t.expiresAt, clientId: t.clientId });
+    } catch {}
+    if (this.valid()) this.scheduleRefresh();
+  },
+  valid() { return !!this.token && this.clientId === S.clientId && Date.now() < this.expiresAt - 60000; },
+  async gis() {
+    for (let i = 0; i < 100 && !window.google?.accounts?.oauth2; i++) await sleep(100);
+    if (!window.google?.accounts?.oauth2) throw new Error('Could not load Google sign-in (are you offline?)');
+    return google.accounts.oauth2;
+  },
+  async request(interactive) {
+    if (!S.clientId) throw new Error('Add your OAuth client ID in Settings first');
+    const oauth2 = await this.gis();
+    return new Promise((resolve, reject) => {
+      const client = oauth2.initTokenClient({
+        client_id: S.clientId, scope: SCOPE,
+        callback: r => {
+          if (r.error) return reject(new Error(r.error_description || r.error));
+          this.token = r.access_token;
+          this.clientId = S.clientId;
+          this.expiresAt = Date.now() + (Number(r.expires_in) || 3600) * 1000;
+          try { sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ token: this.token, expiresAt: this.expiresAt, clientId: S.clientId })); } catch {}
+          try { localStorage.setItem(STORE_KEY + '.consented', S.clientId); } catch {}
+          this.scheduleRefresh();
+          resolve(this.token);
+        },
+        error_callback: e => reject(new AuthError(e?.type === 'popup_closed' ? 'Sign-in window was closed' : 'Google sign-in failed (' + (e?.type || 'unknown') + ')')),
+      });
+      let consented = false;
+      try { consented = localStorage.getItem(STORE_KEY + '.consented') === S.clientId; } catch {}
+      client.requestAccessToken({ prompt: interactive && !consented ? 'consent' : '' });
+    });
+  },
+  scheduleRefresh() {
+    clearTimeout(this.refreshTimer);
+    const ms = Math.max(5000, this.expiresAt - Date.now() - 5 * 60000);
+    this.refreshTimer = setTimeout(async () => {
+      try { await this.request(false); }
+      catch { /* Popup blocked without a click: keep cycling cached photos, offer a reconnect. */
+        toast('Google session is about to expire', { sticky: true, actionLabel: 'Reconnect', action: () => this.request(true).catch(e => toast(e.message, { error: true })) });
+      }
+    }, ms);
+  },
+};
+
+/* =====================================================================
+   Library: Google Drive (OAuth or API key) or a local folder
+   ===================================================================== */
+const DRIVE = 'https://www.googleapis.com/drive/v3/files';
+const FOLDER_MIME = 'application/vnd.google-apps.folder';
+const HEIC = /image\/hei[cf]/i;
+let localFiles = [];
+
+function folderIdFrom(input) {
+  const s = (input || '').trim();
+  const m = s.match(/folders\/([\w-]{10,})/) || s.match(/[?&]id=([\w-]{10,})/);
+  return m ? m[1] : s;
+}
+
+async function driveFetch(url, asBlob = false) {
+  const u = new URL(url);
+  const headers = {};
+  if (S.source === 'apikey') u.searchParams.set('key', S.apiKey.trim());
+  else {
+    if (!Auth.valid()) throw new AuthError();
+    headers.Authorization = 'Bearer ' + Auth.token;
+  }
+  const r = await fetch(u, { headers });
+  if (r.status === 401) { Auth.token = null; throw new AuthError('Google session expired'); }
+  if (!r.ok) {
+    let msg = r.statusText;
+    try { msg = (await r.json()).error?.message || msg; } catch {}
+    throw new Error(`Google Drive: ${msg} (${r.status})`);
+  }
+  return asBlob ? r.blob() : r.json();
+}
+
+function parseExifTime(s) {
+  if (!s) return null;
+  const t = Date.parse(s.replace(/^(\d{4}):(\d{2}):(\d{2})[ T]?/, '$1-$2-$3T'));
+  return Number.isFinite(t) && t > 0 ? t : null;
+}
+
+async function listDrive() {
+  const root = folderIdFrom(S.folder);
+  if (!root) throw new Error('Set a Google Drive folder in Settings');
+  const fields = 'nextPageToken,files(id,name,mimeType,createdTime,modifiedTime,thumbnailLink,imageMediaMetadata(time))';
+  const items = [], queue = [root], seen = new Set();
+  while (queue.length) {
+    const parent = queue.shift();
+    if (seen.has(parent)) continue;
+    seen.add(parent);
+    let pageToken = '';
+    do {
+      const u = new URL(DRIVE);
+      u.searchParams.set('q', `'${parent}' in parents and trashed = false and (mimeType contains 'image/' or mimeType = '${FOLDER_MIME}')`);
+      u.searchParams.set('fields', fields);
+      u.searchParams.set('pageSize', '1000');
+      u.searchParams.set('supportsAllDrives', 'true');
+      u.searchParams.set('includeItemsFromAllDrives', 'true');
+      if (pageToken) u.searchParams.set('pageToken', pageToken);
+      const res = await driveFetch(u.href);
+      for (const f of res.files || []) {
+        if (f.mimeType === FOLDER_MIME) { if (S.recursive) queue.push(f.id); continue; }
+        items.push({
+          id: f.id, name: f.name, mime: f.mimeType, thumb: f.thumbnailLink || '',
+          taken: parseExifTime(f.imageMediaMetadata?.time),
+          created: Date.parse(f.createdTime) || null,
+          modified: Date.parse(f.modifiedTime) || null,
+        });
+      }
+      pageToken = res.nextPageToken || '';
+      toast(`Loading photos… ${items.length}`, { sticky: true });
+    } while (pageToken);
+  }
+  return items;
+}
+
+function listLocal() {
+  return localFiles
+    .filter(f => f.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|avif|bmp)$/i.test(f.name))
+    .map((f, i) => ({
+      id: 'local:' + i + ':' + (f.webkitRelativePath || f.name), name: f.name, mime: f.type, file: f,
+      taken: null, created: f.lastModified, modified: f.lastModified,
+    }));
+}
+
+function itemDate(it) {
+  if (S.dateSource === 'modified') return it.modified ?? it.created ?? it.taken;
+  if (S.dateSource === 'created') return it.created ?? it.modified ?? it.taken;
+  return it.taken ?? it.created ?? it.modified;
+}
+
+/* Image URLs, kept in a small LRU so photos can still play if the Google session lapses. */
+const Cache = {
+  map: new Map(), inUse: new Set(),
+  has(id) { return this.map.get(id)?.ready === true; },
+  get(item) {
+    let e = this.map.get(item.id);
+    if (!e) {
+      e = { t: 0, ready: false, blob: false };
+      e.promise = this.load(item).then(({ url, blob }) => { Object.assign(e, { url, blob, ready: true }); return url; });
+      e.promise.catch(() => this.map.delete(item.id));
+      this.map.set(item.id, e);
+      this.evict();
+    }
+    e.t = performance.now();
+    return e.promise;
+  },
+  async load(item) {
+    const big = Math.round(Math.max(screen.width, screen.height) * (devicePixelRatio || 1));
+    if (item.file) return { url: URL.createObjectURL(item.file), blob: true };
+    // Browsers other than Safari can't decode HEIC; use Drive's rendered JPEG thumbnail at screen size.
+    if (HEIC.test(item.mime) && item.thumb) return { url: item.thumb.replace(/=s\d+$/, '') + '=s' + big, blob: false };
+    if (S.source === 'apikey') return { url: `${DRIVE}/${item.id}?alt=media&key=${encodeURIComponent(S.apiKey.trim())}`, blob: false };
+    const blob = await driveFetch(`${DRIVE}/${item.id}?alt=media`, true);
+    return { url: URL.createObjectURL(blob), blob: true };
+  },
+  evict() {
+    const cap = Math.max(4, S.cacheSize | 0);
+    if (this.map.size <= cap) return;
+    const victims = [...this.map].filter(([id, e]) => e.ready && !this.inUse.has(id)).sort((a, b) => a[1].t - b[1].t);
+    for (const [id, e] of victims) {
+      if (this.map.size <= cap) break;
+      if (e.blob) URL.revokeObjectURL(e.url);
+      this.map.delete(id);
+    }
+  },
+  clear() {
+    for (const [id, e] of this.map) if (e.blob && e.ready && !this.inUse.has(id)) URL.revokeObjectURL(e.url);
+    this.map.clear();
+  },
+};
+
+/* =====================================================================
+   Ordering
+   ===================================================================== */
+const Order = {
+  items: [], bag: [], recent: [], seqId: null, sorted: null, weights: null,
+
+  setItems(items) {
+    this.items = items;
+    const ids = new Set(items.map(i => i.id));
+    this.bag = this.bag.filter(i => ids.has(i.id));
+    this.refresh();
+  },
+  refresh() { this.sorted = null; this.weights = null; },
+
+  /* Curated: weight halves every `halfLifeDays` of age (relative to the newest photo),
+     never dropping below `minWeight`, so old photos still turn up — just less often. */
+  weightFor(ageDays) {
+    const floor = Math.min(1, Math.max(0, S.minWeight));
+    return floor + (1 - floor) * Math.pow(0.5, ageDays / Math.max(1, S.halfLifeDays));
+  },
+  getWeights() {
+    if (this.weights) return this.weights;
+    const dates = this.items.map(itemDate);
+    const known = dates.filter(d => d != null);
+    const newest = known.length ? Math.max(...known) : Date.now();
+    const median = known.length ? known.sort((a, b) => a - b)[known.length >> 1] : newest;
+    this.weights = new Map(this.items.map((it, i) => [it.id, this.weightFor(Math.max(0, (newest - (dates[i] ?? median)) / DAY))]));
+    return this.weights;
+  },
+  getSorted() {
+    if (this.sorted) return this.sorted;
+    const a = [...this.items];
+    if (S.order === 'name') a.sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true }));
+    else a.sort((x, y) => (itemDate(x) ?? 0) - (itemDate(y) ?? 0) || x.name.localeCompare(y.name));
+    if (S.order === 'newest') a.reverse();
+    return (this.sorted = a);
+  },
+
+  pick(ok) {
+    const pool = this.items.filter(ok);
+    if (!pool.length) return null;
+    let it;
+    if (S.order === 'shuffle') {
+      // Shuffle bag: every photo once per round, in a fresh random order each round.
+      if (!this.bag.some(ok)) {
+        this.bag = shuffle([...this.items]);
+        const last = this.recent[this.recent.length - 1];
+        if (this.bag.length > 1 && this.bag[0].id === last) this.bag.push(this.bag.shift());
+      }
+      it = this.bag.splice(this.bag.findIndex(ok), 1)[0];
+    } else if (S.order === 'curated') {
+      const w = this.getWeights();
+      const k = Math.min(S.noRepeat | 0, Math.floor(pool.length / 2));
+      const recent = new Set(k > 0 ? this.recent.slice(-k) : []);
+      const cand = pool.filter(i => !recent.has(i.id));
+      const list = cand.length ? cand : pool;
+      let total = 0;
+      for (const i of list) total += w.get(i.id) ?? 1;
+      let r = Math.random() * total;
+      it = list[list.length - 1];
+      for (const i of list) { r -= w.get(i.id) ?? 1; if (r <= 0) { it = i; break; } }
+    } else {
+      const seq = this.getSorted();
+      let idx = seq.findIndex(i => i.id === this.seqId);
+      for (let n = 0; n < seq.length; n++) {
+        idx = (idx + 1) % seq.length;
+        if (ok(seq[idx])) { it = seq[idx]; break; }
+      }
+    }
+    return it || null;
+  },
+  note(item) {
+    this.seqId = item.id;
+    this.recent.push(item.id);
+    if (this.recent.length > 1000) this.recent.splice(0, 500);
+  },
+};
+
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/* =====================================================================
+   Slides: layout (fit / pan) and transitions
+   ===================================================================== */
+async function prepare(item) {
+  Cache.inUse.add(item.id);
+  try {
+    const url = await Cache.get(item);
+    const img = new Image();
+    img.className = 'photo';
+    img.alt = '';
+    img.draggable = false;
+    img.src = url;
+    await img.decode();
+    const bg = new Image();
+    bg.className = 'bg';
+    bg.alt = '';
+    bg.src = url;
+    const el = document.createElement('div');
+    el.className = 'slide';
+    el.append(bg, img);
+    // naturalWidth/Height already account for EXIF rotation, so orientation is the real one.
+    return { item, el, img, bg, w: img.naturalWidth, h: img.naturalHeight, pan: null, duration: 0 };
+  } catch (e) {
+    Cache.inUse.delete(item.id);
+    throw e;
+  }
+}
+
+function layout(slide) {
+  const W = stage.clientWidth, H = stage.clientHeight, { w, h } = slide;
+  if (!W || !H || !w || !h) return;
+  let mode = S.display, axis = null, dw, dh, travel = 0;
+
+  if (mode === 'pan') {
+    // Relatively taller than the window → fill the width and pan vertically; otherwise fill height, pan horizontally.
+    if (w / h < W / H) { dw = W; dh = Math.ceil(h * W / w); travel = dh - H; axis = 'y'; }
+    else { dh = H; dw = Math.ceil(w * H / h); travel = dw - W; axis = 'x'; }
+    if (travel / (axis === 'y' ? H : W) * 100 < S.panMinOverflow) mode = 'fit';
+  }
+  if (mode === 'fit') {
+    const s = Math.min(W / w, H / h);
+    dw = w * s; dh = h * s; axis = null; travel = 0;
+  }
+
+  const st = slide.img.style;
+  st.width = dw + 'px';
+  st.height = dh + 'px';
+  st.left = (axis === 'x' ? 0 : (W - dw) / 2) + 'px';
+  st.top = (axis === 'y' ? 0 : (H - dh) / 2) + 'px';
+  slide.bg.style.display = mode === 'fit' && S.background === 'blur' ? '' : 'none';
+
+  // Rebuild the pan animation, keeping its progress so a resize doesn't jump.
+  const prev = slide.pan;
+  const t = prev ? prev.currentTime : null, paused = prev ? prev.playState === 'paused' : !P.playing;
+  prev?.cancel();
+  slide.pan = null;
+  if (axis && travel > 0) {
+    slide.pan = slide.img.animate(panFrames(axis, travel), { duration: slide.duration, fill: 'both' });
+    if (t != null) slide.pan.currentTime = t;
+    if (paused) slide.pan.pause();
+  }
+}
+
+function panFrames(axis, travel) {
+  const legs = Math.max(1, S.panPasses | 0) * 2;      // there-and-back = 2 legs per pass
+  const holds = legs + 1;                             // rest at each end
+  const hold = Math.min(0.8, Math.max(0, S.panHold / 100)) / holds;
+  const leg = (1 - hold * holds) / legs;
+  const at = (p, offset, easing) => ({
+    transform: axis === 'x' ? `translate3d(${-p * travel}px,0,0)` : `translate3d(0,${-p * travel}px,0)`,
+    offset: Math.min(1, offset), ...(easing ? { easing } : {}),
+  });
+  const frames = [at(0, 0)];
+  let t = 0, pos = 0;
+  for (let i = 0; i < legs; i++) {
+    t += hold; frames.push(at(pos, t, 'ease-in-out'));
+    pos = 1 - pos;
+    t += leg; frames.push(at(pos, t));
+  }
+  frames.push(at(pos, 1));
+  return frames;
+}
+
+function transition(incoming, outgoing, dir) {
+  const d = S.transition === 'none' ? 0 : Math.max(0, S.transitionSec) * 1000;
+  const opts = { duration: d, easing: 'ease-in-out', fill: 'both' };
+  let inK = null, outK = null;
+  if (S.transition === 'fade') inK = [{ opacity: 0 }, { opacity: 1 }];
+  else if (S.transition === 'zoom') inK = [{ opacity: 0, transform: 'scale(1.06)' }, { opacity: 1, transform: 'scale(1)' }];
+  else if (S.transition === 'slide') {
+    inK = [{ transform: `translateX(${dir * 100}%)` }, { transform: 'translateX(0)' }];
+    outK = [{ transform: 'translateX(0)' }, { transform: `translateX(${-dir * 100}%)` }];
+  }
+  const done = () => { if (outgoing) removeSlide(outgoing); };
+  if (!d || !inK) { done(); return; }
+  if (outgoing && outK) outgoing.el.animate(outK, opts);
+  incoming.el.animate(inK, opts).finished.then(done, done);
+}
+
+function removeSlide(slide) {
+  slide.pan?.cancel();
+  slide.el.remove();
+  if (!P.slides.some(s => s !== slide && s.item.id === slide.item.id)) Cache.inUse.delete(slide.item.id);
+  P.slides = P.slides.filter(s => s !== slide);
+  Cache.evict();
+}
+
+/* =====================================================================
+   Playback
+   ===================================================================== */
+const P = {
+  started: false, playing: true, busy: false, queued: 0,
+  slides: [], current: null, history: [], hIdx: -1, upcoming: null,
+  bad: new Set(), timer: null, due: 0, left: 0, refreshTimer: null,
+};
+
+function canFetch() { return S.source !== 'oauth' || Auth.valid(); }
+const usable = it => !P.bad.has(it.id) && (canFetch() || Cache.has(it.id));
+
+function startTimer(ms) {
+  clearTimeout(P.timer);
+  P.left = 0;
+  P.due = Date.now() + ms;
+  P.timer = setTimeout(() => go(1), ms);
+}
+
+function queueUpcoming() {
+  const item = Order.pick(usable);
+  if (!item) { P.upcoming = null; return; }
+  Order.note(item);
+  const promise = prepare(item);
+  promise.catch(() => {});
+  P.upcoming = { item, promise };
+}
+
+async function go(dir) {
+  if (!P.started) return;
+  if (P.busy) { P.queued = dir; return; }
+  P.busy = true;
+  try {
+    let slide = null;
+    for (let attempt = 0; attempt < 8 && !slide; attempt++) {
+      let item, promise;
+      if (dir < 0) {
+        if (P.hIdx <= 0) return;
+        item = P.history[--P.hIdx];
+      } else if (P.hIdx < P.history.length - 1) {
+        item = P.history[++P.hIdx];
+      } else {
+        if (!P.upcoming) queueUpcoming();
+        if (!P.upcoming) break;
+        ({ item, promise } = P.upcoming);
+        P.upcoming = null;
+        P.history.push(item);
+        if (P.history.length > 300) P.history.splice(0, 100);
+        P.hIdx = P.history.length - 1;
+      }
+      try { slide = await (promise || prepare(item)); }
+      catch (e) {
+        console.warn('Skipping', item.name, e);
+        if (!(e instanceof AuthError)) P.bad.add(item.id);   // auth failures: fall back to cached photos
+        P.history.splice(P.hIdx, 1);
+        if (dir > 0) P.hIdx = P.history.length - 1;
+      }
+    }
+    if (!slide) {
+      const msg = canFetch() ? 'No photos could be shown' : 'Google session expired';
+      toast(msg, { error: true, sticky: !canFetch(), actionLabel: 'Reconnect', action: canFetch() ? null : reconnect });
+      if (P.playing) startTimer(15000);
+      return;
+    }
+    show(slide, dir);
+    queueUpcoming();
+  } finally {
+    P.busy = false;
+    if (P.queued) { const q = P.queued; P.queued = 0; go(q); }
+  }
+}
+
+function show(slide, dir) {
+  // Drop anything still mid-transition so rapid skipping never stacks slides.
+  for (const s of [...P.slides]) if (s !== P.current) removeSlide(s);
+  const outgoing = P.current;
+  slide.duration = (Math.max(1, S.seconds) + (S.transition === 'none' ? 0 : S.transitionSec)) * 1000;
+  stage.append(slide.el);
+  P.slides.push(slide);
+  P.current = slide;
+  layout(slide);
+  if (!P.playing) slide.pan?.pause();
+  transition(slide, outgoing, dir);
+  updateCaption();
+  if (P.playing) startTimer(Math.max(1, S.seconds) * 1000);
+  else P.left = 0;
+}
+
+function setPlaying(on) {
+  P.playing = on;
+  $('#playIcon').setAttribute('d', on ? 'M8 5v14M16 5v14' : 'M7 4l13 8-13 8z');
+  if (on) {
+    P.current?.pan?.play();
+    if (P.left > 0) startTimer(P.left); else if (P.started && !P.timer) startTimer(Math.max(1, S.seconds) * 1000);
+    WakeLock.acquire();
+  } else {
+    if (P.timer) { clearTimeout(P.timer); P.left = Math.max(0, P.due - Date.now()); P.timer = null; }
+    P.current?.pan?.pause();
+    WakeLock.release();
+  }
+}
+
+function updateCaption() {
+  const it = P.current?.item, c = $('#caption');
+  if (!it || S.caption === 'none') { c.textContent = ''; return; }
+  const d = itemDate(it);
+  const date = d ? new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : '';
+  const parts = S.caption === 'date' ? [date] : S.caption === 'name' ? [it.name] : [date, it.name];
+  c.textContent = parts.filter(Boolean).join('  ·  ');
+}
+
+function updateInfo() {
+  const labels = { shuffle: 'Shuffle', curated: 'Curated random', newest: 'Newest first', oldest: 'Oldest first', name: 'By name' };
+  $('#topinfo').textContent = S.showInfo && P.started ? `${Order.items.length} photos · ${labels[S.order]}` : '';
+}
+
+async function loadLibrary() {
+  const items = S.source === 'local' ? listLocal() : await listDrive();
+  Order.setItems(items);
+  updateInfo();
+  return items;
+}
+
+async function start(interactive) {
+  $('#start').classList.remove('show');
+  try {
+    if (S.source === 'oauth' && !Auth.valid()) {
+      toast('Connecting to Google…', { sticky: true });
+      await Auth.request(interactive);
+    }
+    toast('Loading photos…', { sticky: true });
+    const items = await loadLibrary();
+    if (!items.length) throw new Error(S.source === 'local' ? 'No images in that folder' : 'No photos found in that Drive folder');
+    toast('');
+    resetPlayback();
+    P.started = true;
+    updateInfo();
+    setPlaying(true);
+    await go(1);
+    clearInterval(P.refreshTimer);
+    if (S.source !== 'local' && S.refreshMin > 0) {
+      P.refreshTimer = setInterval(() => { if (canFetch()) loadLibrary().catch(e => console.warn('Refresh failed', e)); }, S.refreshMin * 60000);
+    }
+  } catch (e) {
+    console.error(e);
+    showStart(e.message, true);
+  }
+}
+
+function resetPlayback() {
+  clearTimeout(P.timer);
+  P.timer = null; P.left = 0;
+  for (const s of [...P.slides]) removeSlide(s);
+  Object.assign(P, { current: null, history: [], hIdx: -1, upcoming: null, started: false });
+  P.bad.clear();
+  Order.bag = []; Order.recent = []; Order.seqId = null;
+  Cache.clear();
+  $('#caption').textContent = '';
+}
+
+function reconnect() {
+  Auth.request(true).then(() => { toast('Reconnected'); if (P.playing && !P.timer) go(1); })
+    .catch(e => toast(e.message, { error: true }));
+}
+
+function isConfigured() {
+  if (S.source === 'oauth') return !!(S.clientId.trim() && S.folder.trim());
+  if (S.source === 'apikey') return !!(S.apiKey.trim() && S.folder.trim());
+  return true;
+}
+
+function showStart(msg, error = false) {
+  resetPlayback();
+  updateInfo();
+  $('#startMsg').textContent = msg || 'Your photos, full screen.';
+  $('#startMsg').style.color = error ? 'var(--danger)' : '';
+  $('#startBtn').textContent = S.source === 'local' ? 'Choose a folder' : 'Start slideshow';
+  $('#start').classList.add('show');
+}
+
+function startClicked() {
+  if (!isConfigured()) { openPanel(); return; }
+  if (S.source === 'local') { $('#localPicker').value = ''; $('#localPicker').click(); return; }
+  start(true);
+}
+
+$('#localPicker').addEventListener('change', e => {
+  localFiles = [...e.target.files];
+  if (localFiles.length) start(true);
+});
+
+/* =====================================================================
+   Wake lock (keep the screen on while playing)
+   ===================================================================== */
+const WakeLock = {
+  lock: null,
+  async acquire() {
+    if (!S.wakeLock || !('wakeLock' in navigator) || this.lock || document.hidden) return;
+    try { this.lock = await navigator.wakeLock.request('screen'); this.lock.addEventListener('release', () => (this.lock = null)); } catch {}
+  },
+  release() { this.lock?.release().catch(() => {}); this.lock = null; },
+};
+document.addEventListener('visibilitychange', () => { if (!document.hidden && P.playing && P.started) WakeLock.acquire(); });
+
+/* =====================================================================
+   Settings panel
+   ===================================================================== */
+const restartKeys = new Set(['source', 'clientId', 'apiKey', 'folder', 'recursive']);
+const isPan = () => S.display === 'pan';
+const SCHEMA = [
+  { section: 'Photo source' },
+  { key: 'source', label: 'Source', type: 'select', options: [['oauth', 'Google Drive — sign in (private folder)'], ['apikey', 'Google Drive — API key (link-shared folder)'], ['local', 'Folder on this computer']] },
+  { key: 'clientId', label: 'OAuth client ID', type: 'text', placeholder: '1234…apps.googleusercontent.com', show: () => S.source === 'oauth', help: 'From Google Cloud Console → Credentials. See README.md.' },
+  { key: 'apiKey', label: 'API key', type: 'text', placeholder: 'AIza…', show: () => S.source === 'apikey', help: 'The folder must be shared as “Anyone with the link”.' },
+  { key: 'folder', label: 'Drive folder link or ID', type: 'text', placeholder: 'https://drive.google.com/drive/folders/…', show: () => S.source !== 'local' },
+  { key: 'recursive', label: 'Include subfolders', type: 'check', show: () => S.source !== 'local' },
+  { key: 'refreshMin', label: 'Check for new photos every', type: 'range', min: 0, max: 240, step: 5, unit: v => v ? v + ' min' : 'never', show: () => S.source !== 'local' },
+
+  { section: 'Timing' },
+  { key: 'seconds', label: 'Seconds per photo', type: 'range', min: 3, max: 120, step: 1, unit: v => v + ' s' },
+  { key: 'transition', label: 'Transition', type: 'select', options: [['fade', 'Crossfade'], ['zoom', 'Fade + settle'], ['slide', 'Slide'], ['none', 'Cut']] },
+  { key: 'transitionSec', label: 'Transition length', type: 'range', min: 0.2, max: 4, step: 0.1, unit: v => v.toFixed(1) + ' s', show: () => S.transition !== 'none' },
+
+  { section: 'Presentation' },
+  { key: 'display', label: 'Display mode', type: 'select', options: [['pan', 'Pan — fill the screen, sweep across the photo'], ['fit', 'Fit — whole photo, never cropped']],
+    help: 'Pan: photos taller than the window fill its width and scroll top → bottom → top; wider ones fill its height and scroll left → right → left.' },
+  { key: 'panPasses', label: 'Pan round trips per photo', type: 'range', min: 1, max: 4, step: 1, unit: v => v + '×', show: isPan },
+  { key: 'panHold', label: 'Pause at the ends', type: 'range', min: 0, max: 60, step: 5, unit: v => v + '%', show: isPan, help: 'Share of the photo’s time spent resting at each edge.' },
+  { key: 'panMinOverflow', label: 'Only pan when the photo overflows by', type: 'range', min: 0, max: 40, step: 1, unit: v => v + '%', show: isPan, help: 'Photos that barely overflow are shown fitted instead of crawling a few pixels.' },
+  { key: 'background', label: 'Letterbox background', type: 'select', options: [['blur', 'Blurred photo'], ['black', 'Black']] },
+  { key: 'caption', label: 'Caption', type: 'select', options: [['none', 'None'], ['date', 'Date'], ['name', 'File name'], ['both', 'Date and file name']] },
+  { key: 'showInfo', label: 'Show photo count in the corner', type: 'check' },
+
+  { section: 'Order' },
+  { key: 'order', label: 'Order', type: 'select', options: [['curated', 'Curated random — newer photos more often'], ['shuffle', 'Shuffle — fully random, each photo once per round'], ['newest', 'Newest first'], ['oldest', 'Oldest first'], ['name', 'By file name']] },
+  { key: 'dateSource', label: 'Photo date', type: 'select', options: [['taken', 'Date taken (EXIF), else upload date'], ['created', 'Date added to Drive'], ['modified', 'Date modified']], show: () => S.order !== 'shuffle' && S.order !== 'name' },
+  { key: 'halfLifeDays', label: 'Recency half-life', type: 'range', min: 30, max: 3650, step: 30, unit: v => v >= 365 ? (v / 365).toFixed(1) + ' yr' : v + ' days', show: () => S.order === 'curated', help: curatedHelp },
+  { key: 'minWeight', label: 'Floor for old photos', type: 'range', min: 0, max: 1, step: 0.05, unit: v => Math.round(v * 100) + '%', show: () => S.order === 'curated', help: () => 'Oldest photos keep at least this share of a new photo’s chance.' },
+  { key: 'noRepeat', label: 'Don’t repeat within the last', type: 'range', min: 0, max: 200, step: 5, unit: v => v + ' photos', show: () => S.order === 'curated' },
+
+  { section: 'Other' },
+  { key: 'wakeLock', label: 'Keep the screen awake while playing', type: 'check' },
+  { key: 'cacheSize', label: 'Photos kept in memory', type: 'range', min: 5, max: 100, step: 5, unit: v => String(v), help: 'Lets the show keep going from memory if the Google session lapses.' },
+];
+
+function curatedHelp() {
+  const r = yrs => (Order.weightFor(0) / Order.weightFor(365 * yrs));
+  return `A photo from today is ${r(1).toFixed(1)}× as likely as one a year older, ${r(3).toFixed(1)}× as likely as one 3 years older.`;
+}
+
+let dirty = false;
+function renderPanel() {
+  const form = $('#form');
+  form.textContent = '';
+  for (const f of SCHEMA) {
+    if (f.section) { const h = document.createElement('h3'); h.textContent = f.section; form.append(h); continue; }
+    if (f.show && !f.show()) continue;
+    const wrap = document.createElement('div');
+    wrap.className = 'field' + (f.type === 'check' ? ' check' : '');
+    const id = 'f_' + f.key;
+    const label = document.createElement('label');
+    label.htmlFor = id;
+    let input;
+    if (f.type === 'select') {
+      input = document.createElement('select');
+      for (const [v, t] of f.options) input.append(new Option(t, v, false, S[f.key] === v));
+    } else if (f.type === 'check') {
+      input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = !!S[f.key];
+    } else if (f.type === 'range') {
+      input = document.createElement('input');
+      Object.assign(input, { type: 'range', min: f.min, max: f.max, step: f.step, value: S[f.key] });
+    } else {
+      input = document.createElement('input');
+      Object.assign(input, { type: 'text', value: S[f.key] || '', placeholder: f.placeholder || '', spellcheck: false, autocomplete: 'off' });
+    }
+    input.id = id;
+    if (f.type === 'check') { label.append(input, document.createTextNode(f.label)); wrap.append(label); }
+    else {
+      label.textContent = f.label;
+      wrap.append(label);
+      if (f.type === 'range') {
+        const row = document.createElement('div'); row.className = 'range';
+        const out = document.createElement('output'); out.textContent = f.unit(S[f.key]);
+        row.append(input, out); wrap.append(row);
+        input.addEventListener('input', () => { out.textContent = f.unit(+input.value); });
+      } else wrap.append(input);
+    }
+    let help = null;
+    if (f.help) { help = document.createElement('div'); help.className = 'help'; help.textContent = typeof f.help === 'function' ? f.help() : f.help; wrap.append(help); }
+
+    const commit = () => {
+      const v = f.type === 'check' ? input.checked : f.type === 'range' ? +input.value : input.value;
+      if (S[f.key] === v) return;
+      S[f.key] = v;
+      saveSettings();
+      onSettingChanged(f.key);
+      if (help && typeof f.help === 'function') help.textContent = f.help();
+      if (f.type === 'select' || f.type === 'check') renderPanel();   // conditional fields may appear
+    };
+    input.addEventListener(f.type === 'text' ? 'change' : f.type === 'range' ? 'input' : 'change', commit);
+    form.append(wrap);
+  }
+  const note = document.createElement('div');
+  note.className = 'note';
+  note.innerHTML = 'Keys: <kbd>Space</kbd> pause · <kbd>←</kbd><kbd>→</kbd> previous / next · <kbd>F</kbd> fullscreen · <kbd>S</kbd> settings. Swipe on touch screens.';
+
+  const h = document.createElement('h3');
+  h.textContent = 'Other devices';
+  const share = document.createElement('div');
+  share.className = 'field';
+  const row = document.createElement('div');
+  row.className = 'row-btns';
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'btn';
+  copyBtn.textContent = 'Copy setup link';
+  copyBtn.onclick = async () => {
+    const link = encodeSetup();
+    try { await navigator.clipboard.writeText(link); toast('Setup link copied'); }
+    catch { window.prompt('Copy this setup link:', link); }
+  };
+  row.append(copyBtn);
+  if (navigator.share) {
+    const shareBtn = document.createElement('button');
+    shareBtn.className = 'btn';
+    shareBtn.textContent = 'Share…';
+    shareBtn.onclick = () => navigator.share({ title: 'Drive Slideshow setup', url: encodeSetup() }).catch(() => {});
+    row.append(shareBtn);
+  }
+  const shareHelp = document.createElement('div');
+  shareHelp.className = 'help';
+  const local = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+  shareHelp.textContent = (local ? 'You’re on this PC’s local copy, so the link will only work here. Make it from your hosted site instead. ' : '') +
+    'Opening the link on another device fills in all these settings. It includes your key, so only send it to yourself.';
+  share.append(row, shareHelp);
+  form.append(h, share, note);
+  $('#panelApply').hidden = !dirty && P.started;
+}
+
+function onSettingChanged(key) {
+  if (restartKeys.has(key)) { dirty = true; $('#panelApply').hidden = false; return; }
+  if (['order', 'dateSource', 'halfLifeDays', 'minWeight'].includes(key)) {
+    Order.refresh();
+    if (P.upcoming && key === 'order') { const u = P.upcoming; P.upcoming = null; u.promise.then(removeSlide, () => {}); queueUpcoming(); }
+  }
+  if (['display', 'panPasses', 'panHold', 'panMinOverflow', 'background'].includes(key)) relayoutAll(true);
+  if (key === 'seconds' && P.playing && P.started) startTimer(Math.max(1, S.seconds) * 1000);
+  if (key === 'cacheSize') Cache.evict();
+  if (key === 'wakeLock') S.wakeLock ? WakeLock.acquire() : WakeLock.release();
+  if (key === 'caption' || key === 'dateSource') updateCaption();
+  updateInfo();
+}
+
+function relayoutAll(restartPan = false) {
+  for (const s of P.slides) {
+    if (restartPan && s.pan) { s.pan.cancel(); s.pan = null; }
+    layout(s);
+  }
+}
+
+function openPanel() { renderPanel(); $('#panel').classList.add('open'); showHud(); }
+function closePanel() { $('#panel').classList.remove('open'); }
+function applyPanel() {
+  closePanel();
+  dirty = false;
+  if (!isConfigured()) { showStart('Finish setting up the photo source in Settings.'); return; }
+  if (S.source === 'local') { showStart('Choose a folder of photos on this computer.'); return; }
+  start(true);
+}
+
+/* =====================================================================
+   Input: HUD, keyboard, touch, resize
+   ===================================================================== */
+let idleTimer = null;
+function showHud() {
+  document.body.classList.remove('idle');
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    if (!$('#panel').classList.contains('open') && !$('#hud').matches(':hover')) document.body.classList.add('idle');
+  }, 2500);
+}
+document.addEventListener('pointermove', showHud);
+document.addEventListener('pointerdown', showHud);
+
+function toggleFullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen?.().catch(() => {});
+}
+
+$('#bPrev').onclick = () => go(-1);
+$('#bNext').onclick = () => go(1);
+$('#bPlay').onclick = () => setPlaying(!P.playing);
+$('#bFull').onclick = toggleFullscreen;
+$('#bSettings').onclick = () => ($('#panel').classList.contains('open') ? closePanel() : openPanel());
+$('#panelClose').onclick = closePanel;
+$('#panelCancel').onclick = closePanel;
+$('#panelApply').onclick = applyPanel;
+$('#startBtn').onclick = startClicked;
+$('#startSettings').onclick = openPanel;
+
+document.addEventListener('keydown', e => {
+  if (e.target.closest('input, select, textarea')) { if (e.key === 'Escape') e.target.blur(); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === ' ' || k === 'k') { e.preventDefault(); setPlaying(!P.playing); }
+  else if (k === 'arrowright' || k === 'l' || k === 'pagedown') go(1);
+  else if (k === 'arrowleft' || k === 'j' || k === 'pageup') go(-1);
+  else if (k === 'f') toggleFullscreen();
+  else if (k === 's' || k === ',') $('#bSettings').onclick();
+  else if (k === 'escape') closePanel();
+  else return;
+  showHud();
+});
+
+let swipe = null;
+stage.addEventListener('pointerdown', e => { swipe = { x: e.clientX, y: e.clientY, t: Date.now() }; });
+stage.addEventListener('pointerup', e => {
+  if (!swipe) return;
+  const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
+  if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - swipe.t < 800) go(dx < 0 ? 1 : -1);
+  else if (document.body.classList.contains('idle')) showHud();
+  else if ($('#panel').classList.contains('open')) closePanel();
+  swipe = null;
+});
+stage.addEventListener('dblclick', toggleFullscreen);
+
+let resizeTimer = null;
+new ResizeObserver(() => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => relayoutAll(false), 120); }).observe(stage);
+
+/* =====================================================================
+   Boot
+   ===================================================================== */
+if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+
+Auth.init();
+setPlaying(true);
+showHud();
+if (importedSetup === true) toast('Settings loaded from your setup link');
+else if (importedSetup === 'error') toast('That setup link is damaged. Copy it again.', { error: true });
+if (!isConfigured()) {
+  showStart('Connect a Google Drive folder to begin.');
+  openPanel();
+} else if (S.source === 'oauth' && Auth.valid()) {
+  start(false);
+} else {
+  showStart(S.source === 'local' ? 'Choose a folder of photos on this computer.' : '');
+}
+</script>
+</body>
+</html>
