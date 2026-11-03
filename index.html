@@ -168,7 +168,7 @@ const DEFAULTS = {
   clientId: '', apiKey: '', folder: '', recursive: true,
   seconds: 12, transition: 'fade', transitionSec: 1.2,
   display: 'pan',           // fit | pan
-  panPasses: 1, panHold: 20, panMinOverflow: 6,
+  panSpeed: 8, panPause: 1.5, panMinOverflow: 6,
   background: 'blur',       // blur | black
   order: 'curated',         // shuffle | curated | newest | oldest | name
   dateSource: 'taken',      // taken | created | modified
@@ -513,7 +513,7 @@ async function prepare(item) {
     el.className = 'slide';
     el.append(bg, img);
     // naturalWidth/Height already account for EXIF rotation, so orientation is the real one.
-    return { item, el, img, bg, w: img.naturalWidth, h: img.naturalHeight, pan: null, duration: 0 };
+    return { item, el, img, bg, w: img.naturalWidth, h: img.naturalHeight, pan: null, panPeriod: 1 };
   } catch (e) {
     Cache.inUse.delete(item.id);
     throw e;
@@ -543,36 +543,32 @@ function layout(slide) {
   st.top = (axis === 'y' ? 0 : (H - dh) / 2) + 'px';
   slide.bg.style.display = mode === 'fit' && S.background === 'blur' ? '' : 'none';
 
-  // Rebuild the pan animation, keeping its progress so a resize doesn't jump.
+  // Rebuild the pan animation at the same point in its round trip, so resizing or changing speed doesn't jump.
   const prev = slide.pan;
-  const t = prev ? prev.currentTime : null, paused = prev ? prev.playState === 'paused' : !P.playing;
+  const phase = prev ? (prev.currentTime % slide.panPeriod) / slide.panPeriod : 0;
+  const paused = prev ? prev.playState === 'paused' : !P.playing;
   prev?.cancel();
   slide.pan = null;
   if (axis && travel > 0) {
-    slide.pan = slide.img.animate(panFrames(axis, travel), { duration: slide.duration, fill: 'both' });
-    if (t != null) slide.pan.currentTime = t;
+    // Speed is in % of the screen's shorter side per second, so it feels the same on a phone and a TV.
+    const pxPerSec = Math.max(1, S.panSpeed) / 100 * Math.min(W, H);
+    const leg = travel / pxPerSec * 1000;
+    const hold = Math.max(0, S.panPause) * 1000;
+    slide.panPeriod = 2 * (leg + hold);
+    slide.pan = slide.img.animate(panFrames(axis, travel, hold / slide.panPeriod), { duration: slide.panPeriod, iterations: Infinity });
+    slide.pan.currentTime = phase * slide.panPeriod;
     if (paused) slide.pan.pause();
   }
 }
 
-function panFrames(axis, travel) {
-  const legs = Math.max(1, S.panPasses | 0) * 2;      // there-and-back = 2 legs per pass
-  const holds = legs + 1;                             // rest at each end
-  const hold = Math.min(0.8, Math.max(0, S.panHold / 100)) / holds;
-  const leg = (1 - hold * holds) / legs;
+/* One round trip: rest at the start, sweep to the far edge, rest, sweep back. It repeats until the photo's time is up. */
+function panFrames(axis, travel, hold) {
+  const leg = 0.5 - hold;
   const at = (p, offset, easing) => ({
     transform: axis === 'x' ? `translate3d(${-p * travel}px,0,0)` : `translate3d(0,${-p * travel}px,0)`,
-    offset: Math.min(1, offset), ...(easing ? { easing } : {}),
+    offset, ...(easing ? { easing } : {}),
   });
-  const frames = [at(0, 0)];
-  let t = 0, pos = 0;
-  for (let i = 0; i < legs; i++) {
-    t += hold; frames.push(at(pos, t, 'ease-in-out'));
-    pos = 1 - pos;
-    t += leg; frames.push(at(pos, t));
-  }
-  frames.push(at(pos, 1));
-  return frames;
+  return [at(0, 0), at(0, hold, 'ease-in-out'), at(1, hold + leg), at(1, 2 * hold + leg, 'ease-in-out'), at(0, 1)];
 }
 
 function transition(incoming, outgoing, dir) {
@@ -675,7 +671,6 @@ function show(slide, dir) {
   // Drop anything still mid-transition so rapid skipping never stacks slides.
   for (const s of [...P.slides]) if (s !== P.current) removeSlide(s);
   const outgoing = P.current;
-  slide.duration = (Math.max(1, S.seconds) + (S.transition === 'none' ? 0 : S.transitionSec)) * 1000;
   stage.append(slide.el);
   P.slides.push(slide);
   P.current = slide;
@@ -825,8 +820,9 @@ const SCHEMA = [
   { section: 'Presentation' },
   { key: 'display', label: 'Display mode', type: 'select', options: [['pan', 'Pan — fill the screen, sweep across the photo'], ['fit', 'Fit — whole photo, never cropped']],
     help: 'Pan: photos taller than the window fill its width and scroll top → bottom → top; wider ones fill its height and scroll left → right → left.' },
-  { key: 'panPasses', label: 'Pan round trips per photo', type: 'range', min: 1, max: 4, step: 1, unit: v => v + '×', show: isPan },
-  { key: 'panHold', label: 'Pause at the ends', type: 'range', min: 0, max: 60, step: 5, unit: v => v + '%', show: isPan, help: 'Share of the photo’s time spent resting at each edge.' },
+  { key: 'panSpeed', label: 'Pan speed', type: 'range', min: 1, max: 50, step: 1, unit: v => v + '%/s', show: isPan,
+    help: 'Share of the screen the photo moves per second. It keeps sweeping back and forth until the photo’s time is up.' },
+  { key: 'panPause', label: 'Pause at each edge', type: 'range', min: 0, max: 10, step: 0.5, unit: v => v.toFixed(1) + ' s', show: isPan },
   { key: 'panMinOverflow', label: 'Only pan when the photo overflows by', type: 'range', min: 0, max: 40, step: 1, unit: v => v + '%', show: isPan, help: 'Photos that barely overflow are shown fitted instead of crawling a few pixels.' },
   { key: 'background', label: 'Letterbox background', type: 'select', options: [['blur', 'Blurred photo'], ['black', 'Black']] },
   { key: 'caption', label: 'Caption', type: 'select', options: [['none', 'None'], ['date', 'Date'], ['name', 'File name'], ['both', 'Date and file name']] },
@@ -945,7 +941,8 @@ function onSettingChanged(key) {
     Order.refresh();
     if (P.upcoming && key === 'order') { const u = P.upcoming; P.upcoming = null; u.promise.then(removeSlide, () => {}); queueUpcoming(); }
   }
-  if (['display', 'panPasses', 'panHold', 'panMinOverflow', 'background'].includes(key)) relayoutAll(true);
+  if (['display', 'panMinOverflow', 'background'].includes(key)) relayoutAll(true);
+  if (key === 'panSpeed' || key === 'panPause') relayoutAll(false);
   if (key === 'seconds' && P.playing && P.started) startTimer(Math.max(1, S.seconds) * 1000);
   if (key === 'cacheSize') Cache.evict();
   if (key === 'wakeLock') S.wakeLock ? WakeLock.acquire() : WakeLock.release();
