@@ -224,6 +224,10 @@ function toast(msg, { error = false, sticky = false, action = null, actionLabel 
   if (!sticky && !action) toastTimer = setTimeout(() => t.classList.remove('show'), error ? 7000 : 3000);
 }
 
+// Surface unexpected errors on screen instead of leaving a silent black page.
+window.addEventListener('error', e => toast('Something went wrong: ' + e.message, { error: true, sticky: true }));
+window.addEventListener('unhandledrejection', e => toast('Something went wrong: ' + (e.reason?.message || e.reason), { error: true, sticky: true }));
+
 /* =====================================================================
    Google auth (Google Identity Services token flow)
    ===================================================================== */
@@ -388,7 +392,17 @@ const Cache = {
     if (item.file) return { url: URL.createObjectURL(item.file), blob: true };
     // Browsers other than Safari can't decode HEIC; use Drive's rendered JPEG thumbnail at screen size.
     if (HEIC.test(item.mime) && item.thumb) return { url: item.thumb.replace(/=s\d+$/, '') + '=s' + big, blob: false };
-    if (S.source === 'apikey') return { url: `${DRIVE}/${item.id}?alt=media&key=${encodeURIComponent(S.apiKey.trim())}`, blob: false };
+    if (S.source === 'apikey') {
+      // Full-size downloads through an API key are heavily rate-limited by Google, so prefer Drive's
+      // own screen-sized renditions and keep the original download as the last resort.
+      // Panning scales photos past the screen size, so ask for more pixels there (Drive never upscales).
+      const px = Math.min(6000, S.display === 'pan' ? big * 2 : big);
+      const urls = [];
+      if (item.thumb) urls.push(item.thumb.replace(/=s\d+$/, '') + '=s' + px);
+      urls.push(`https://drive.google.com/thumbnail?id=${item.id}&sz=s${px}`);
+      urls.push(`${DRIVE}/${item.id}?alt=media&key=${encodeURIComponent(S.apiKey.trim())}`);
+      return { url: urls, blob: false };
+    }
     const blob = await driveFetch(`${DRIVE}/${item.id}?alt=media`, true);
     return { url: URL.createObjectURL(blob), blob: true };
   },
@@ -509,21 +523,28 @@ async function whyImageFailed(item, url) {
     const type = r.headers.get('content-type') || 'unknown type';
     return type.startsWith('image/') ? `${item.name} (${type}) can't be opened by this browser` : `Google Drive sent ${type} instead of the photo`;
   } catch {
-    return 'couldn’t reach Google Drive';
+    // The folder listing worked, so the network is fine: Google refused this download outright.
+    return `Google Drive refused to send ${item.name}. This is usually a temporary download limit; it clears by itself, often within a day`;
   }
 }
 
 async function prepare(item) {
   Cache.inUse.add(item.id);
   try {
-    const url = await Cache.get(item);
+    const got = await Cache.get(item);
+    const candidates = Array.isArray(got) ? got : [got];
     const img = new Image();
     img.className = 'photo';
     img.alt = '';
     img.draggable = false;
-    img.src = url;
-    try { await img.decode(); }
-    catch { throw new Error(await whyImageFailed(item, url)); }
+    let url = null;
+    for (const u of candidates) {
+      img.src = u;
+      try { await img.decode(); url = u; break; } catch {}
+    }
+    if (!url) throw new Error(await whyImageFailed(item, candidates[candidates.length - 1]));
+    const entry = Cache.map.get(item.id);
+    if (entry && Array.isArray(entry.url)) { entry.url = [url]; entry.promise = Promise.resolve(entry.url); }   // remember which source worked
     const bg = new Image();
     bg.className = 'bg';
     bg.alt = '';
@@ -664,6 +685,7 @@ async function go(dir) {
         if (P.history.length > 300) P.history.splice(0, 100);
         P.hIdx = P.history.length - 1;
       }
+      const slow = P.current ? null : setTimeout(() => { P.errorShown = true; toast(`Loading ${item.name}…`, { sticky: true }); }, 2500);
       try { slide = await (promise || prepare(item)); }
       catch (e) {
         console.warn('Skipping', item.name, e);
@@ -671,6 +693,8 @@ async function go(dir) {
         if (!(e instanceof AuthError)) P.bad.add(item.id);   // auth failures: fall back to cached photos
         P.history.splice(P.hIdx, 1);
         if (dir > 0) P.hIdx = P.history.length - 1;
+      } finally {
+        clearTimeout(slow);
       }
     }
     if (!slide) {

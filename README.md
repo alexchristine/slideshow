@@ -93,6 +93,10 @@ screens, and double-click for fullscreen.
 
 ## Notes
 
+- With the API key source, photos load as Drive's own previews sized for your screen. The
+  full original is downloaded only if those fail. Google rate-limits full-size downloads
+  through API keys, and the previews are much smaller and faster.
+
 - HEIC photos (iPhone) can't be decoded by Chrome, Edge or Firefox. For those, the app
   shows Drive's rendered JPEG preview at screen resolution.
 - **Folder on this computer** is also available, for trying the app without Drive.
