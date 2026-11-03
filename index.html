@@ -495,6 +495,24 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 /* =====================================================================
    Slides: layout (fit / pan) and transitions
    ===================================================================== */
+/* An <img> error carries no reason, so ask Google directly to get a message worth showing. */
+async function whyImageFailed(item, url) {
+  if (!navigator.onLine) return 'this device is offline';
+  if (url.startsWith('blob:')) return `${item.name} isn't an image this browser can open`;
+  try {
+    const r = await fetch(url);
+    if (!r.ok) {
+      let msg = r.statusText;
+      try { msg = (await r.json()).error?.message || msg; } catch {}
+      return `Google Drive said “${msg}” (${r.status})`;
+    }
+    const type = r.headers.get('content-type') || 'unknown type';
+    return type.startsWith('image/') ? `${item.name} (${type}) can't be opened by this browser` : `Google Drive sent ${type} instead of the photo`;
+  } catch {
+    return 'couldn’t reach Google Drive';
+  }
+}
+
 async function prepare(item) {
   Cache.inUse.add(item.id);
   try {
@@ -504,7 +522,8 @@ async function prepare(item) {
     img.alt = '';
     img.draggable = false;
     img.src = url;
-    await img.decode();
+    try { await img.decode(); }
+    catch { throw new Error(await whyImageFailed(item, url)); }
     const bg = new Image();
     bg.className = 'bg';
     bg.alt = '';
@@ -648,14 +667,21 @@ async function go(dir) {
       try { slide = await (promise || prepare(item)); }
       catch (e) {
         console.warn('Skipping', item.name, e);
+        P.lastError = e.message;
         if (!(e instanceof AuthError)) P.bad.add(item.id);   // auth failures: fall back to cached photos
         P.history.splice(P.hIdx, 1);
         if (dir > 0) P.hIdx = P.history.length - 1;
       }
     }
     if (!slide) {
-      const msg = canFetch() ? 'No photos could be shown' : 'Google session expired';
-      toast(msg, { error: true, sticky: !canFetch(), actionLabel: 'Reconnect', action: canFetch() ? null : reconnect });
+      if (canFetch()) {
+        // Failures are often temporary (Wi-Fi dropped, device asleep), so give every photo another chance on the retry.
+        P.bad.clear();
+        P.errorShown = true;
+        toast(`No photos could be shown: ${P.lastError || 'unknown error'}. Trying again shortly…`, { error: true, sticky: true });
+      } else {
+        toast('Google session expired', { error: true, sticky: true, actionLabel: 'Reconnect', action: reconnect });
+      }
       if (P.playing) startTimer(15000);
       return;
     }
@@ -671,6 +697,7 @@ function show(slide, dir) {
   // Drop anything still mid-transition so rapid skipping never stacks slides.
   for (const s of [...P.slides]) if (s !== P.current) removeSlide(s);
   const outgoing = P.current;
+  if (P.errorShown) { P.errorShown = false; toast(''); }
   stage.append(slide.el);
   P.slides.push(slide);
   P.current = slide;
