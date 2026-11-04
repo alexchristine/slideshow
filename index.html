@@ -48,11 +48,30 @@
   #stage { transition: filter .45s ease, transform .45s ease; }
   body.paused.pause-blur #stage { filter: blur(max(64px, 6vmax)) brightness(.7); transform: scale(1.2); }
   body.paused.pause-blur #caption { opacity: 0; }
-  #pausedMark { position: fixed; left: 50%; top: 50%; z-index: 6; width: 76px; height: 76px; margin: -38px 0 0 -38px;
-    border-radius: 50%; background: rgba(0,0,0,.35); display: grid; place-items: center; pointer-events: none;
-    opacity: 0; transform: scale(.85); transition: opacity .3s, transform .3s; }
-  #pausedMark svg { width: 30px; height: 30px; fill: #fff; }
-  body.paused #pausedMark { opacity: 1; transform: none; }
+
+  /* ---------- clocks ---------- */
+  #clock { position: fixed; z-index: 5; right: 24px; bottom: 22px; text-align: right; color: #fff; pointer-events: none;
+    text-shadow: 0 1px 8px rgba(0,0,0,.75); font-variant-numeric: tabular-nums; line-height: 1.1;
+    display: none; transition: opacity .35s; }
+  body.clock-on #clock { display: block; }
+  #clock .t { font-size: clamp(22px, 4.2vmin, 56px); font-weight: 300; }
+  #clock .d { font-size: clamp(12px, 1.9vmin, 22px); opacity: .85; margin-top: 3px; }
+  #clock.pos-tl { left: 24px; right: auto; top: 20px; bottom: auto; text-align: left; }
+  #clock.pos-tr { top: 20px; bottom: auto; }
+  body.clock-tr #topinfo { right: auto; left: 18px; }
+  body.paused #clock { opacity: 0; }
+
+  /* Paused: a big clock with the date, centred over the (blurred) photo. */
+  #pausedView { position: fixed; inset: 0; z-index: 6; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; pointer-events: none; color: #fff; text-align: center; padding: 16px;
+    text-shadow: 0 2px 24px rgba(0,0,0,.45); opacity: 0; transform: scale(.97); transition: opacity .4s, transform .4s; }
+  body.paused #pausedView { opacity: 1; transform: none; }
+  #pausedView .icon { width: 52px; height: 52px; border-radius: 50%; background: rgba(0,0,0,.3); display: grid;
+    place-items: center; margin-bottom: 3vmin; }
+  #pausedView .icon svg { width: 20px; height: 20px; fill: #fff; }
+  #pausedView .t { font-size: clamp(64px, 19vmin, 280px); font-weight: 200; line-height: 1; letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums; }
+  #pausedView .d { font-size: clamp(18px, 3.6vmin, 48px); font-weight: 400; opacity: .9; margin-top: 1.5vmin; }
 
   /* ---------- HUD ---------- */
   #hud { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 10;
@@ -78,6 +97,7 @@
     #dragbar { display: block; position: fixed; z-index: 15; left: env(titlebar-area-x, 0); top: env(titlebar-area-y, 0);
       width: env(titlebar-area-width, 0); height: env(titlebar-area-height, 0); app-region: drag; -webkit-app-region: drag; }
     #topinfo, #toast { top: calc(16px + env(titlebar-area-height, 0px)) !important; }
+    #clock.pos-tl, #clock.pos-tr { top: calc(20px + env(titlebar-area-height, 0px)); }
     #panel { padding-top: env(titlebar-area-height, 0px); }
   }
   #topinfo { position: fixed; top: 16px; right: 18px; z-index: 10; font-size: 12px; color: var(--muted);
@@ -132,6 +152,8 @@
 
   @media (max-width: 520px) {
     #caption { left: 16px; bottom: 80px; }
+    #clock { right: 16px; bottom: 80px; }
+    #clock.pos-tl { left: 16px; }
     #hud button { width: 36px; height: 36px; }
   }
 </style>
@@ -142,7 +164,11 @@
 <div id="dragbar"></div>
 <div id="fps"></div>
 <div id="caption"></div>
-<div id="pausedMark" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg></div>
+<div id="clock"><div class="t"></div><div class="d"></div></div>
+<div id="pausedView" aria-hidden="true">
+  <div class="icon"><svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg></div>
+  <div class="t"></div><div class="d"></div>
+</div>
 <div id="topinfo"></div>
 
 <div id="hud">
@@ -203,6 +229,9 @@ const DEFAULTS = {
   halfLifeDays: 365, minWeight: 0.15, noRepeat: 40,
   caption: 'date',          // none | date | name | both
   refreshMin: 30, cacheSize: 25, wakeLock: true, showInfo: true, pauseBlur: true,
+  clock: 'time',            // none | time | timeDate
+  clockPos: 'br',           // br | tr | tl
+  clockFormat: 'auto',      // auto | 24 | 12
 };
 
 const S = (() => {
@@ -763,6 +792,34 @@ function show(slide, dir) {
   else P.left = 0;
 }
 
+/* Corner clock (optional) and the big clock shown while paused share one formatter and one tick. */
+const Clock = {
+  fmt: null, last: '',
+  apply() {
+    const hours = S.clockFormat === '24' ? { hour: '2-digit', hourCycle: 'h23' } : S.clockFormat === '12' ? { hour: 'numeric', hour12: true } : { hour: 'numeric' };
+    this.fmt = {
+      time: new Intl.DateTimeFormat(undefined, { ...hours, minute: '2-digit' }),
+      date: new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }),
+    };
+    this.last = '';
+    document.body.classList.toggle('clock-on', S.clock !== 'none');
+    document.body.classList.toggle('clock-tr', S.clock !== 'none' && S.clockPos === 'tr');
+    $('#clock').className = 'pos-' + S.clockPos;
+    $('#clock .d').hidden = S.clock !== 'timeDate';
+    this.tick();
+  },
+  tick() {
+    const now = new Date(), t = this.fmt.time.format(now), d = this.fmt.date.format(now);
+    if (t + d === this.last) return;
+    this.last = t + d;
+    for (const el of [$('#clock'), $('#pausedView')]) {
+      el.querySelector('.t').textContent = t;
+      el.querySelector('.d').textContent = d;
+    }
+  },
+  start() { this.apply(); setInterval(() => this.tick(), 1000); },
+};
+
 function updatePausedLook() {
   document.body.classList.toggle('paused', P.started && !P.playing);
   document.body.classList.toggle('pause-blur', !!S.pauseBlur);
@@ -917,6 +974,10 @@ const SCHEMA = [
   { key: 'panMinOverflow', label: 'Only pan when the photo overflows by', type: 'range', min: 0, max: 40, step: 1, unit: v => v + '%', show: isPan, help: 'Photos that barely overflow are shown fitted instead of crawling a few pixels.' },
   { key: 'background', label: 'Letterbox background', type: 'select', options: [['blur', 'Blurred photo'], ['black', 'Black']] },
   { key: 'caption', label: 'Caption', type: 'select', options: [['none', 'None'], ['date', 'Date'], ['name', 'File name'], ['both', 'Date and file name']] },
+  { key: 'clock', label: 'Clock', type: 'select', options: [['none', 'Off'], ['time', 'Time'], ['timeDate', 'Time and date']] },
+  { key: 'clockPos', label: 'Clock position', type: 'select', options: [['br', 'Bottom right'], ['tr', 'Top right'], ['tl', 'Top left']], show: () => S.clock !== 'none' },
+  { key: 'clockFormat', label: 'Clock format', type: 'select', options: [['auto', 'System default'], ['24', '24-hour'], ['12', '12-hour']],
+    help: 'Also used by the big clock shown while paused.' },
   { key: 'showInfo', label: 'Show photo count in the corner', type: 'check' },
   { key: 'pauseBlur', label: 'Blur the screen while paused', type: 'check', help: 'Click or tap anywhere to pause and resume.' },
 
@@ -1040,6 +1101,7 @@ function onSettingChanged(key) {
   if (key === 'wakeLock') S.wakeLock ? WakeLock.acquire() : WakeLock.release();
   if (key === 'caption' || key === 'dateSource') updateCaption();
   if (key === 'pauseBlur') updatePausedLook();
+  if (key.startsWith('clock')) Clock.apply();
   updateInfo();
 }
 
@@ -1152,6 +1214,7 @@ new ResizeObserver(() => { clearTimeout(resizeTimer); resizeTimer = setTimeout((
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 
 Auth.init();
+Clock.start();
 setPlaying(true);
 showHud();
 if (importedSetup === true) toast('Settings loaded from your setup link');

@@ -94,8 +94,12 @@ comfortable sharing.
 Everything adapts to the window live: resizing, rotating a tablet or going fullscreen
 recalculates the current photo's fit and pan without restarting it.
 
-Click or tap anywhere to pause. The screen blurs so the photo can't be made out, and you
-can turn the blur off in Settings. Click or tap again to resume.
+Click or tap anywhere to pause. The screen blurs so the photo can't be made out, and a big
+clock with the date appears in the middle. You can turn the blur off in Settings. Click or
+tap again to resume.
+
+A small clock can also stay in a corner while the photos play: time only, or time and date.
+Set it under Settings → Presentation, along with its corner and whether it's 12- or 24-hour.
 
 Keys: `Space` pause · `←` `→` previous/next · `F` fullscreen · `S` settings · `D` frame-rate
 meter. Swipe left or right on touch screens to change photos.
