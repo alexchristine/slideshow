@@ -30,6 +30,11 @@ so opening `index.html` straight from disk won't work for the Drive sources.
 
    It launches full screen with its own icon.
 
+   On a PC the installed app opens without a title bar. The photo fills the whole window,
+   and only the minimise / maximise / close buttons float in the top-right corner. Drag
+   the top edge of the window to move it, and drag its edges to resize it. To get the title
+   bar back, use the small ⌃ arrow next to those buttons.
+
 To update later, upload the changed files to the repo again. Devices pick up the new
 version the next time they open the app.
 

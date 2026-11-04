@@ -55,6 +55,16 @@
   #hud button:hover { background: rgba(255,255,255,.1); }
   #hud svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   #hud .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
+  /* Installed desktop app with no title bar (window controls overlay): the photo runs up into the
+     title-bar area, this invisible strip lets you drag the window, and UI stays clear of the
+     minimise/maximise/close buttons. */
+  #dragbar { display: none; }
+  @media (display-mode: window-controls-overlay) {
+    #dragbar { display: block; position: fixed; z-index: 15; left: env(titlebar-area-x, 0); top: env(titlebar-area-y, 0);
+      width: env(titlebar-area-width, 0); height: env(titlebar-area-height, 0); app-region: drag; -webkit-app-region: drag; }
+    #topinfo, #toast { top: calc(16px + env(titlebar-area-height, 0px)) !important; }
+    #panel { padding-top: env(titlebar-area-height, 0px); }
+  }
   #topinfo { position: fixed; top: 16px; right: 18px; z-index: 10; font-size: 12px; color: var(--muted);
     background: var(--panel); border: 1px solid var(--line); padding: 4px 10px; border-radius: 999px; transition: opacity .35s; }
   #topinfo:empty { display: none; }
@@ -83,8 +93,7 @@
 
   /* ---------- settings panel ---------- */
   #panel { position: fixed; top: 0; right: 0; bottom: 0; z-index: 40; width: min(420px, 100vw);
-    background: var(--panel-solid); border-left: 1px solid var(--line); display: flex; flex-direction: column;
-    transform: translateX(100%); transition: transform .3s ease; }
+    background: var(--panel-solid); border-left: 1px solid var(--line); display: flex; flex-direction: column;    transform: translateX(100%); transition: transform .3s ease; }
   #panel.open { transform: none; }
   #panel header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line); }
   #panel header h2 { margin: 0; font-size: 16px; }
@@ -115,6 +124,7 @@
 <body>
 
 <div id="stage"></div>
+<div id="dragbar"></div>
 <div id="caption"></div>
 <div id="topinfo"></div>
 
