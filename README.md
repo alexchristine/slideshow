@@ -94,8 +94,11 @@ comfortable sharing.
 Everything adapts to the window live: resizing, rotating a tablet or going fullscreen
 recalculates the current photo's fit and pan without restarting it.
 
-Keys: `Space` pause · `←` `→` previous/next · `F` fullscreen · `S` settings. Swipe on touch
-screens, and double-click for fullscreen.
+Click or tap anywhere to pause. The screen blurs so the photo can't be made out, and you
+can turn the blur off in Settings. Click or tap again to resume.
+
+Keys: `Space` pause · `←` `→` previous/next · `F` fullscreen · `S` settings · `D` frame-rate
+meter. Swipe left or right on touch screens to change photos.
 
 ## Notes
 

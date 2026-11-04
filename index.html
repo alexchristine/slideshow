@@ -44,13 +44,22 @@
     transition: opacity .6s; pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #caption:empty { opacity: 0; }
 
+  /* Paused: blur the photo past recognition. Scaling up hides the dark fringe a blur leaves at the edges. */
+  #stage { transition: filter .45s ease, transform .45s ease; }
+  body.paused.pause-blur #stage { filter: blur(max(64px, 6vmax)) brightness(.7); transform: scale(1.2); }
+  body.paused.pause-blur #caption { opacity: 0; }
+  #pausedMark { position: fixed; left: 50%; top: 50%; z-index: 6; width: 76px; height: 76px; margin: -38px 0 0 -38px;
+    border-radius: 50%; background: rgba(0,0,0,.35); display: grid; place-items: center; pointer-events: none;
+    opacity: 0; transform: scale(.85); transition: opacity .3s, transform .3s; }
+  #pausedMark svg { width: 30px; height: 30px; fill: #fff; }
+  body.paused #pausedMark { opacity: 1; transform: none; }
+
   /* ---------- HUD ---------- */
   #hud { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 10;
     display: flex; align-items: center; gap: 4px; padding: 6px; border-radius: 999px;
-    background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(12px);
+    background: var(--panel); border: 1px solid var(--line);
     transition: opacity .35s, transform .35s; }
-  /* Hide fully (not just transparent) when idle: the HUD's backdrop blur would otherwise be
-     recomputed over the moving photo on every frame. */
+  /* Hide fully (not just transparent) when idle, so nothing extra is composited over the moving photo. */
   body.idle #hud, body.idle #topinfo { opacity: 0; pointer-events: none; visibility: hidden;
     transition: opacity .35s, transform .35s, visibility 0s .35s; }
   #fps { position: fixed; left: 12px; top: 12px; z-index: 50; display: none;
@@ -78,7 +87,7 @@
   /* ---------- toast ---------- */
   #toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 30; display: none;
     align-items: center; gap: 10px; padding: 8px 10px 8px 14px; border-radius: 999px; max-width: calc(100vw - 32px);
-    background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(12px); }
+    background: var(--panel); border: 1px solid var(--line); }
   #toast.show { display: flex; }
   #toast.error { border-color: rgba(255,138,122,.5); }
   #toast button { border: 0; border-radius: 999px; padding: 4px 12px; background: var(--accent); color: var(--accent-ink); cursor: pointer; font-weight: 600; }
@@ -133,6 +142,7 @@
 <div id="dragbar"></div>
 <div id="fps"></div>
 <div id="caption"></div>
+<div id="pausedMark" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg></div>
 <div id="topinfo"></div>
 
 <div id="hud">
@@ -192,7 +202,7 @@ const DEFAULTS = {
   dateSource: 'taken',      // taken | created | modified
   halfLifeDays: 365, minWeight: 0.15, noRepeat: 40,
   caption: 'date',          // none | date | name | both
-  refreshMin: 30, cacheSize: 25, wakeLock: true, showInfo: true,
+  refreshMin: 30, cacheSize: 25, wakeLock: true, showInfo: true, pauseBlur: true,
 };
 
 const S = (() => {
@@ -753,8 +763,14 @@ function show(slide, dir) {
   else P.left = 0;
 }
 
+function updatePausedLook() {
+  document.body.classList.toggle('paused', P.started && !P.playing);
+  document.body.classList.toggle('pause-blur', !!S.pauseBlur);
+}
+
 function setPlaying(on) {
   P.playing = on;
+  updatePausedLook();
   $('#playIcon').setAttribute('d', on ? 'M8 5v14M16 5v14' : 'M7 4l13 8-13 8z');
   if (on) {
     P.current?.pan?.play();
@@ -823,6 +839,7 @@ function resetPlayback() {
   Order.bag = []; Order.recent = []; Order.seqId = null;
   Cache.clear();
   $('#caption').textContent = '';
+  updatePausedLook();
 }
 
 function reconnect() {
@@ -901,6 +918,7 @@ const SCHEMA = [
   { key: 'background', label: 'Letterbox background', type: 'select', options: [['blur', 'Blurred photo'], ['black', 'Black']] },
   { key: 'caption', label: 'Caption', type: 'select', options: [['none', 'None'], ['date', 'Date'], ['name', 'File name'], ['both', 'Date and file name']] },
   { key: 'showInfo', label: 'Show photo count in the corner', type: 'check' },
+  { key: 'pauseBlur', label: 'Blur the screen while paused', type: 'check', help: 'Click or tap anywhere to pause and resume.' },
 
   { section: 'Order' },
   { key: 'order', label: 'Order', type: 'select', options: [['curated', 'Curated random — newer photos more often'], ['shuffle', 'Shuffle — fully random, each photo once per round'], ['newest', 'Newest first'], ['oldest', 'Oldest first'], ['name', 'By file name']] },
@@ -975,7 +993,7 @@ function renderPanel() {
   }
   const note = document.createElement('div');
   note.className = 'note';
-  note.innerHTML = 'Keys: <kbd>Space</kbd> pause · <kbd>←</kbd><kbd>→</kbd> previous / next · <kbd>F</kbd> fullscreen · <kbd>S</kbd> settings · <kbd>D</kbd> frame-rate meter. Swipe on touch screens.';
+  note.innerHTML = 'Keys: <kbd>Space</kbd> pause · <kbd>←</kbd><kbd>→</kbd> previous / next · <kbd>F</kbd> fullscreen · <kbd>S</kbd> settings · <kbd>D</kbd> frame-rate meter. Click or tap to pause; swipe on touch screens.';
 
   const h = document.createElement('h3');
   h.textContent = 'Other devices';
@@ -1021,6 +1039,7 @@ function onSettingChanged(key) {
   if (key === 'cacheSize') Cache.evict();
   if (key === 'wakeLock') S.wakeLock ? WakeLock.acquire() : WakeLock.release();
   if (key === 'caption' || key === 'dateSource') updateCaption();
+  if (key === 'pauseBlur') updatePausedLook();
   updateInfo();
 }
 
@@ -1119,11 +1138,10 @@ stage.addEventListener('pointerup', e => {
   if (!swipe) return;
   const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
   if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - swipe.t < 800) go(dx < 0 ? 1 : -1);
-  else if (document.body.classList.contains('idle')) showHud();
   else if ($('#panel').classList.contains('open')) closePanel();
+  else if (P.started && Math.hypot(dx, dy) < 12) setPlaying(!P.playing);   // a click or tap toggles pause
   swipe = null;
 });
-stage.addEventListener('dblclick', toggleFullscreen);
 
 let resizeTimer = null;
 new ResizeObserver(() => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => relayoutAll(false), 120); }).observe(stage);
